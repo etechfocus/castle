@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Auth API Stack
+
+Parameters:
+  ProjectId:
+    Type: "String"
+    Description: Project Id
+    Default: "projectid"
+
+Resources:
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ${ProjectId}-cognito-apigateway
+      ProtocolType: HTTP
+
+  HttpApiAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref HttpApi
+      AuthorizerType: JWT
+      IdentitySource:
+        - "$request.header.Authorization"
+      JwtConfiguration:
+        Audience: 
+          - !Sub ${ProjectId}-client
+          - Fn::ImportValue: !Sub ${ProjectId}-cognito-stack-user-client-id
+        Issuer:
+          Fn::Join:
+          - ""
+          - - !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/"
+            - Fn::ImportValue: !Sub ${ProjectId}-cognito-stack-user-pool-id
+      Name: JwtAuthorizer
+
+  HttpApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationMethod: GET
+      IntegrationType: HTTP_PROXY
+      IntegrationUri: https://www.wikipedia.org/
+      PayloadFormatVersion: 1.0
+
+  HttpApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      AuthorizationType: JWT
+      AuthorizerId: !Ref HttpApiAuthorizer
+      RouteKey: GET /
+      Target: !Sub "integrations/${HttpApiIntegration}"
+
+  HttpApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      AutoDeploy: true
+      StageName: $default
+
+Outputs:
+
+  HttpApiUrl:
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/"

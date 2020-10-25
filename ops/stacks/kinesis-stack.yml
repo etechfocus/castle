@@ -1,0 +1,29 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Kinesis
+
+Parameters:
+  ProjectId:
+    Type: "String"
+    Description: Project Id
+    Default: "projectid"
+
+Resources:
+  EventStream: 
+    Type: AWS::Kinesis::Stream
+    Properties: 
+      Name: !Sub ${ProjectId}-kinesis-stack-stream
+      ShardCount: 1
+
+Outputs:
+  StreamURL:
+    Description: URL of newly created Kinesis stream
+    Value: !Ref EventStream
+    Export:
+      Name: !Sub "${ProjectId}-kinesis-stack-stream-url"
+  StreamARN:
+    Description: ARN of newly created Kinesis Stream
+    Value: !GetAtt
+      - EventStream
+      - Arn
+    Export:
+      Name: !Sub "${ProjectId}-kinesis-stack-stream-arn"

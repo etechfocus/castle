@@ -1,0 +1,41 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SQS Stack
+
+Parameters:
+  ProjectId:
+    Type: "String"
+    Description: Project Id
+    Default: "projectid"
+
+Resources:
+  TaskQueue: 
+    Type: AWS::SQS::Queue
+    Properties: 
+      DelaySeconds: 0
+      MaximumMessageSize: 262144
+      MessageRetentionPeriod: 1209600
+      QueueName: !Ref 'queueName'
+      ReceiveMessageWaitTimeSeconds: 0
+      VisibilityTimeout: 30
+      QueueName: !Sub ${ProjectId}-sqs-stack-queue
+
+Outputs:
+  QueueURL:
+    Description: URL of newly created SQS Queue
+    Value: !Ref TaskQueue
+    Export:
+      Name: !Sub "${ProjectId}-sqs-stack-queue-url"
+  QueueARN:
+    Description: ARN of newly created SQS Queue
+    Value: !GetAtt
+      - TaskQueue
+      - Arn
+    Export:
+      Name: !Sub "${ProjectId}-sqs-stack-queue-arn"
+  QueueName:
+    Description: Name newly created SQS Queue
+    Value: !GetAtt
+      - TaskQueue
+      - QueueName
+    Export:
+      Name: !Sub "${ProjectId}-sqs-stack-queue-name"

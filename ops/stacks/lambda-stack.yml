@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Lambda Functions
+
+Parameters:
+  ProjectId:
+    Type: "String"
+    Description: Project Id
+    Default: "projectid"
+  lambdaFunctionName:
+    Type: "String"
+    AllowedPattern: "^[a-zA-Z0-9]+[a-zA-Z0-9-]+[a-zA-Z0-9]+$"
+    Description: Lambda function name. (Recommend to keep default)
+    Default: "pepper-api"
+
+Resources:
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          const AWS = require(`aws-sdk`);
+          AWS.config.update({region: `us-east-1`});
+          exports.handler = async function(event, context, callback) {
+            var userId = '00000000-000-0000-0000-000000000000';
+            if ('requestContext' in event && 'authorizer' in event.requestContext) {
+              userId = event.requestContext.authorizer.claims.sub;
+            }
+
+            // Dynamo Test
+            const Item = {};
+            Item['userId'] = userId;
+            Item['id'] = 'td:'+context.awsRequestId;
+            Item['createdAt'] = Date.now();
+            Item['updatedAt'] = Date.now();
+            var TableName = 'pepper_accounts';
+            const dynamo = new AWS.DynamoDB.DocumentClient();
+            try {
+              await dynamo.put({TableName, Item}).promise();
+            } catch (e) {
+              throw new Error('server error ' + e)
+            }
+
+            // SQS Test
+            const sqs = new AWS.SQS({apiVersion: '2012-11-05'});
+            var queueInfo = await sqs.getQueueUrl({QueueName: 'pepper-sqs-stack-queue'}).promise();
+
+            var params = {
+              MessageAttributes: {
+                "Title": {
+                  DataType: "String",
+                  StringValue: "The Whistler"
+                },
+                "Author": {
+                  DataType: "String",
+                  StringValue: "John Grisham"
+                },
+                "WeeksOn": {
+                  DataType: "Number",
+                  StringValue: "6"
+                }
+              },
+              MessageBody: "Test Body " + context.awsRequestId,
+              QueueUrl: queueInfo.QueueUrl
+            };
+            try {
+              await sqs.sendMessage(params).promise();
+            } catch (e) {
+              throw new Error('server error ' + e)
+            }
+ 
+            // Kinesis
+            const kinesis = new AWS.Kinesis();
+            var params = {
+              Data: "123 " + context.awsRequestId, 
+              PartitionKey: "111", 
+              StreamName: "pepper-kinesis-stack-stream"
+            };
+            try {
+              await kinesis.putRecord(params).promise();
+            } catch (e) {
+              throw new Error('server error ' + e)
+            }
+
+            var response = {statusCode: 200, body: 'Hello World! ' + userId};
+            return response;
+          };
+      Description: API Lambda function
+      FunctionName: !Ref "lambdaFunctionName"
+      Handler: index.handler
+      MemorySize: 512
+      Role: !GetAtt LambdaIamRole.Arn
+      Runtime: nodejs12.x
+      Timeout: 60
+
+  LambdaIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - 'lambda.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      Path: '/'
+      Policies:
+        - PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action: 
+                  - kinesis:putRecord
+                Effect: Allow
+                Resource:
+                  - Fn::ImportValue: !Sub "${ProjectId}-kinesis-stack-stream-arn"
+              - Action: 
+                  - sqs:getQueueUrl
+                  - sqs:SendMessage
+                  - sqs:ReceiveMessage
+                Effect: Allow
+                Resource:
+                  - Fn::ImportValue: !Sub "${ProjectId}-sqs-stack-queue-arn"
+              - Action:
+                  - dynamodb:Scan
+                  - dynamodb:PutItem
+                Effect: Allow
+                Resource: 
+                  - Fn::ImportValue: !Sub "${ProjectId}-dynamo-stack-table-arn"
+              - Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Effect: "Allow"
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${lambdaFunctionName}:*"
+          PolicyName: !Join ["", [{"Ref": "AWS::StackName"}, "-lambda-log"]]
+         
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: 'apigateway.amazonaws.com'
+
+  LambdaLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${lambdaFunctionName}"
+      RetentionInDays: 3
+
+Outputs:
+  LambdaArn:
+    Value: !GetAtt LambdaFunction.Arn
+    Export:
+      Name: !Sub "${ProjectId}-lambda-stack-lambda-arn"
